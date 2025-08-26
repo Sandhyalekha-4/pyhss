@@ -3732,19 +3732,35 @@ class Diameter:
 
                     # Iterate through each media component
                     for media_avp in media_components:
-                        mediaType = self.get_avp_data(media_avp, 520)[0]
+                        mediaTypeHex = self.get_avp_data(media_avp, 520)[0]
+
+                        # Defensive parse of hex enum
+                        try:
+                            mediaTypeVal = int(mediaTypeHex, 16)
+                        except (TypeError, ValueError):
+                            self.logTool.log(service='HSS', level='error',
+                                             message=f"[diameter.py] [Answer_16777236_265] [AAA] Invalid Media-Type '{mediaTypeHex}', skipping component",
+                                             redisClient=self.redisMessaging)
+                            continue
                       
-                        self.logTool.log(service='HSS', level='info', message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type with value {mediaType}", redisClient=self.redisMessaging)
-                        # In order to send a Gx RAR, we need to ensure that mediaType is AUDIO(0) or VIDEO(1)
-                        valid_media_types = [0, 1]
-                        if int(mediaType, 16) not in valid_media_types:
-                            if int(mediaType, 16) == 4:
-                                self.logTool.log(service='HSS', level='error', message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type with value {mediaType} doesn't need charging rule", redisClient=self.redisMessaging)
-                            else:                                
-                                self.logTool.log(service='HSS', level='error', message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type with value {mediaType} is incorrect - Is not AUDIO or VIDEO or CONTROL", redisClient=self.redisMessaging)
-                        assert(int(mediaType, 16) in valid_media_types)
-                        # At this point, we know the AAR is indicating a call setup, so we'll get the serving pgw information, then send a 
-                        # RAR to the PGW over Gx, asking it to setup the dedicated bearer.
+                        self.logTool.log(service='HSS', level='info', message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type value {mediaTypeVal} (hex {mediaTypeHex})", redisClient=self.redisMessaging)
+
+                        # Only AUDIO(0) or VIDEO(1) should trigger Gx RAR / charging rules
+                        if mediaTypeVal not in (0, 1):
+                            if mediaTypeVal == 4:
+                                # CONTROL — valid, but no charging rules needed
+                                self.logTool.log(service='HSS', level='info',
+                                                 message=f"[diameter.py] [Answer_16777236_265] [AAA] CONTROL media detected; skipping charging rules / Gx RAR",
+                                                 redisClient=self.redisMessaging)
+                            else:
+                                # Other valid or unknown media types — skip gracefully
+                                self.logTool.log(service='HSS', level='info',
+                                                 message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type {mediaTypeVal} not subject to charging; skipping",
+                                                 redisClient=self.redisMessaging)
+                            # Skip to next media component without failing authentication
+                            continue
+
+                        # ---- From here onward, ONLY for AUDIO(0) or VIDEO(1) ----
 
                         try:
                             if emergencySubscriber and not imsEnabled:
@@ -3784,8 +3800,8 @@ class Diameter:
                             if not ueIp:
                                 ueIp = servingApn.get('subscriber_routing', None)
     
-                            if (int(mediaType, 16) == 0):
-                                #Audio
+                            if mediaTypeVal == 0:
+                                # Audio
                                 ulBandwidth = 128000
                                 dlBandwidth = 128000
                                 qci = 1
@@ -3795,8 +3811,8 @@ class Diameter:
                                 arpPreemptionVulnerability = True
                                 rule_name = "GBR-Voice_" + str(aarSessionID)
                                 charging_rule_id = 1000
-                            elif (int(mediaType, 16) == 1):
-                                #Video
+                            elif mediaTypeVal == 1:
+                                # Video
                                 ulBandwidth = 512000
                                 dlBandwidth = 512000
                                 qci = 2
@@ -4007,11 +4023,11 @@ class Diameter:
 	                            self.logTool.log(service='HSS', level='info', message=f"[diameter.py] [Answer_16777236_265] [AAA] RAA returned Unauthorized, declining request", redisClient=self.redisMessaging)
 
                         except Exception as e:
-                            self.logTool.log(service='HSS', level='error', message=f"[diameter.py] [Answer_16777236_265] [AAA] Error processing RAR / RAA, Authorizing request: {traceback.format_exc()}", redisClient=self.redisMessaging)
-                            avp += self.generate_avp(268, 40, self.int_to_hex(5005, 4))
+                            self.logTool.log(service='HSS', level='error', message=f"[diameter.py] [Answer_16777236_265] [AAA] Error processing RAR / RAA, declining request: {traceback.format_exc()}", redisClient=self.redisMessaging)
+                            avp += self.generate_avp(268, 40, self.int_to_hex(4001, 4))
                 except Exception as e:
                     self.logTool.log(service='HSS', level='error', message=f"[diameter.py] [Answer_16777236_265] [AAA] Error generating AAA Charging Rule: {traceback.format_exc()}", redisClient=self.redisMessaging)
-                    avp += self.generate_avp(268, 40, self.int_to_hex(5005, 4))
+                    avp += self.generate_avp(268, 40, self.int_to_hex(4001, 4))
                     pass
             else:
                 self.logTool.log(service='HSS', level='info', message=f"[diameter.py] [Answer_16777236_265] [AAA] Request unauthorized", redisClient=self.redisMessaging)
@@ -4230,13 +4246,13 @@ class Diameter:
             response = self.generate_diameter_packet("01", "40", 275, 16777236, packet_vars['hop-by-hop-identifier'], packet_vars['end-to-end-identifier'], avp)     #Generate Diameter packet
             return response
         except Exception as e:
-            self.logTool.log(service='HSS', level='debug', message=f"[diameter.py] [Answer_16777236_275] [STA] Error generating STA, returning 5005", redisClient=self.redisMessaging)
+            self.logTool.log(service='HSS', level='debug', message=f"[diameter.py] [Answer_16777236_275] [STA] Error generating STA, returning 5001", redisClient=self.redisMessaging)
             avp = ''
             sessionId = self.get_avp_data(avps, 263)[0]                                                       #Get Session-ID
             avp += self.generate_avp(263, 40, sessionId)                                                    #Set session ID to received session ID
             avp += self.generate_avp(264, 40, self.OriginHost)                                               #Origin Host
             avp += self.generate_avp(296, 40, self.OriginRealm)                                              #Origin Realm
-            avp += self.generate_avp(268, 40, self.int_to_hex(5005, 4))
+            avp += self.generate_avp(268, 40, self.int_to_hex(5001, 4))
             response = self.generate_diameter_packet("01", "40", 275, 16777236, packet_vars['hop-by-hop-identifier'], packet_vars['end-to-end-identifier'], avp)     #Generate Diameter packet
             return response
 
