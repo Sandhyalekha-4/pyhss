@@ -4008,10 +4008,10 @@ class Diameter:
 
                         except Exception as e:
                             self.logTool.log(service='HSS', level='error', message=f"[diameter.py] [Answer_16777236_265] [AAA] Error processing RAR / RAA, Authorizing request: {traceback.format_exc()}", redisClient=self.redisMessaging)
-                            avp += self.generate_avp(268, 40, self.int_to_hex(2001, 4))
+                            avp += self.generate_avp(268, 40, self.int_to_hex(5001, 4))
                 except Exception as e:
                     self.logTool.log(service='HSS', level='error', message=f"[diameter.py] [Answer_16777236_265] [AAA] Error generating AAA Charging Rule: {traceback.format_exc()}", redisClient=self.redisMessaging)
-                    avp += self.generate_avp(268, 40, self.int_to_hex(2001, 4))
+                    avp += self.generate_avp(268, 40, self.int_to_hex(5001, 4))
                     pass
             else:
                 self.logTool.log(service='HSS', level='info', message=f"[diameter.py] [Answer_16777236_265] [AAA] Request unauthorized", redisClient=self.redisMessaging)
