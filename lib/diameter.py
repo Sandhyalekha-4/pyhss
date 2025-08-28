@@ -3732,35 +3732,21 @@ class Diameter:
 
                     # Iterate through each media component
                     for media_avp in media_components:
-                        mediaTypeHex = self.get_avp_data(media_avp, 520)[0]
-
-                        # Defensive parse of hex enum
-                        try:
-                            mediaTypeVal = int(mediaTypeHex, 16)
-                        except (TypeError, ValueError):
-                            self.logTool.log(service='HSS', level='error',
-                                             message=f"[diameter.py] [Answer_16777236_265] [AAA] Invalid Media-Type '{mediaTypeHex}', skipping component",
-                                             redisClient=self.redisMessaging)
-                            continue
+                        mediaType = self.get_avp_data(media_avp, 520)[0]
                       
-                        self.logTool.log(service='HSS', level='info', message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type value {mediaTypeVal} (hex {mediaTypeHex})", redisClient=self.redisMessaging)
-
-                        # Only AUDIO(0) or VIDEO(1) should trigger Gx RAR / charging rules
-                        if mediaTypeVal not in (0, 1):
-                            if mediaTypeVal == 4:
-                                # CONTROL — valid, but no charging rules needed
-                                self.logTool.log(service='HSS', level='info',
-                                                 message=f"[diameter.py] [Answer_16777236_265] [AAA] CONTROL media detected; skipping charging rules / Gx RAR",
-                                                 redisClient=self.redisMessaging)
-                            else:
-                                # Other valid or unknown media types — skip gracefully
-                                self.logTool.log(service='HSS', level='info',
-                                                 message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type {mediaTypeVal} not subject to charging; skipping",
-                                                 redisClient=self.redisMessaging)
-                            # Skip to next media component without failing authentication
+                        self.logTool.log(service='HSS', level='info', message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type with value {mediaType}", redisClient=self.redisMessaging)
+                        # In order to send a Gx RAR, we need to ensure that mediaType is AUDIO(0) or VIDEO(1)
+                        valid_media_types = [0, 1]
+                        if int(mediaType, 16) not in valid_media_types:
+                            avp += self.generate_avp(268, 40, self.int_to_hex(2001, 4))
+                            if int(mediaType, 16) == 4:
+                                self.logTool.log(service='HSS', level='debug', message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type with value {mediaType} doesn't need charging rule", redisClient=self.redisMessaging)
+                            else:                                
+                                self.logTool.log(service='HSS', level='debug', message=f"[diameter.py] [Answer_16777236_265] [AAA] Media type with value {mediaType} is incorrect - Is not AUDIO or VIDEO or CONTROL", redisClient=self.redisMessaging)
                             continue
-
-                        # ---- From here onward, ONLY for AUDIO(0) or VIDEO(1) ----
+                        #assert(int(mediaType, 16) in valid_media_types)
+                        # At this point, we know the AAR is indicating a call setup, so we'll get the serving pgw information, then send a 
+                        # RAR to the PGW over Gx, asking it to setup the dedicated bearer.
 
                         try:
                             if emergencySubscriber and not imsEnabled:
@@ -3800,8 +3786,8 @@ class Diameter:
                             if not ueIp:
                                 ueIp = servingApn.get('subscriber_routing', None)
     
-                            if mediaTypeVal == 0:
-                                # Audio
+                            if (int(mediaType, 16) == 0):
+                                #Audio
                                 ulBandwidth = 128000
                                 dlBandwidth = 128000
                                 qci = 1
@@ -3811,8 +3797,8 @@ class Diameter:
                                 arpPreemptionVulnerability = True
                                 rule_name = "GBR-Voice_" + str(aarSessionID)
                                 charging_rule_id = 1000
-                            elif mediaTypeVal == 1:
-                                # Video
+                            elif (int(mediaType, 16) == 1):
+                                #Video
                                 ulBandwidth = 512000
                                 dlBandwidth = 512000
                                 qci = 2
