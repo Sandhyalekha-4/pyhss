@@ -2563,7 +2563,8 @@ class PyHSS_PCRF_CLR_Subscriber(Resource):
 
         except Exception as E:
             print("Flask Exception: " + str(E))
-            return handle_exception(E)
+            result = {"Result": f"Unahndled error: {E}"}
+            return result, 500
 
 @ns_pcrf.route('/pcscf_restoration_subscriber')
 class PyHSS_PCRF_PSCSF_Restoration_Subscriber(Resource):
